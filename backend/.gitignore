@@ -1,0 +1,35 @@
+# Dependencies
+node_modules
+/coverage
+
+# TypeScript output
+/dist
+/build
+/*.js
+/*.map
+
+# Optional: if you use a specific directory for TypeScript source
+# Comment out the above lines if you want to ignore only specific directories
+# /src/**/*.js
+# /src/**/*.map
+
+# Environment files
+.env
+.env.local
+
+# Logs and temporary files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tgz
+.npmrc
+.yarnrc
+.pnpm-store
+
+# IDE and OS files (optional, but recommended)
+.idea
+.vscode
+.DS_Store
+Thumbs.db
