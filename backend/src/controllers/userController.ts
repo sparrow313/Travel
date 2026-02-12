@@ -33,7 +33,12 @@ export const registerUser = async (req: Request, res: Response) => {
     });
 
     const accessToken = jwt.sign(
-      { id: user.id, email: user.email, isAdmin: user.isAdmin },
+      {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        isAdmin: user.isAdmin,
+      },
       process.env.JWT_SECRET || "YOUR_SECRET",
       {
         expiresIn: "1d",
@@ -91,7 +96,12 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 
     const accessToken = jwt.sign(
-      { id: user.id, email: user.email, isAdmin: user.isAdmin },
+      {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        isAdmin: user.isAdmin,
+      },
       process.env.JWT_SECRET || process.env.JWT_SECRET_ACCESS,
       {
         expiresIn: "1d",

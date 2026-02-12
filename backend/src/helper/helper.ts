@@ -1,14 +1,14 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Request, Response, NextFunction } from "express";
-import { prisma } from "../../lib/prisma.js";
 
 interface DecodedToken extends JwtPayload {
+  id: number;
   email: string;
-  id?: number;
-  isAdmin?: boolean;
+  username: string;
+  isAdmin: boolean;
 }
 
-export const isAuthenticated = async (
+export const isAuthenticated = (
   req: Request,
   res: Response,
   next: NextFunction,
@@ -16,7 +16,7 @@ export const isAuthenticated = async (
   try {
     let token = req.get("authorization");
     if (!token) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: "Token not Found",
       });
@@ -33,14 +33,18 @@ export const isAuthenticated = async (
       process.env.JWT_SECRET_ACCESS,
     ) as DecodedToken;
 
-    const User = await prisma.user.findUnique({
-      where: { email: decoded.email },
-    });
+    // Store only safe, non-sensitive data from the token
+    // Never store password or make unnecessary DB calls here
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      username: decoded.username,
+      isAdmin: decoded.isAdmin,
+    };
 
-    req.user = User;
     next();
   } catch (error) {
-    return res.status(404).json({
+    return res.status(401).json({
       success: false,
       message: error instanceof Error ? error.message : "Unknown error",
     });

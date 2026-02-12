@@ -5,36 +5,27 @@ export const getUserProfile = async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: "User not Found",
       });
     }
 
-    const profile = await prisma.user.findUnique({
+    // Only fetch the profile data from DB, user info is already in req.user
+    const profile = await prisma.profile.findUnique({
       where: {
         id: user.id,
       },
-      include: {
-        profile: true,
-      },
     });
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile not found",
-      });
-    }
 
     res.status(200).json({
       success: true,
       user: {
-        id: profile.id,
-        email: profile.email,
-        username: profile.username,
-        isAdmin: profile.isAdmin,
-        profile: profile.profile,
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        isAdmin: user.isAdmin,
+        profile: profile, // Can be null if profile doesn't exist yet
       },
     });
   } catch (error) {
@@ -52,9 +43,24 @@ export const createUserProfile = async (req: Request, res: Response) => {
     const user = req.user;
 
     if (!user) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: "User not found",
+      });
+    }
+
+    // Check if profile already exists
+    const existingProfile = await prisma.profile.findUnique({
+      where: {
+        id: user.id,
+      },
+    });
+
+    if (existingProfile) {
+      return res.status(409).json({
+        success: false,
+        message: "Profile already exists. Use update endpoint to modify it.",
+        profile: existingProfile,
       });
     }
 
@@ -69,6 +75,7 @@ export const createUserProfile = async (req: Request, res: Response) => {
 
     res.status(201).json({
       success: true,
+      message: "Profile created successfully",
       profile,
     });
   } catch (error) {
@@ -86,28 +93,44 @@ export const updateProfile = async (req: Request, res: Response) => {
     const user = req.user;
 
     if (!user) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: "User not found",
       });
     }
 
-    // Build update data object with only provided fields
+    // Build update data with only provided fields (partial update)
     const updateData: { bio?: string; currentlyVisiting?: string | null } = {};
     if (bio !== undefined) updateData.bio = bio;
     if (currentlyVisiting !== undefined)
       updateData.currentlyVisiting = currentlyVisiting;
 
-    const updatedProfile = await prisma.profile.update({
+    // Validate that at least one field is provided
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields provided to update",
+      });
+    }
+
+    // Use upsert to create or update in one operation
+    // This is more efficient than checking existence first
+    const profile = await prisma.profile.upsert({
       where: {
         id: user.id,
       },
-      data: updateData,
+      update: updateData, // Only updates provided fields
+      create: {
+        id: user.id,
+        bio: bio || "",
+        currentlyVisiting: currentlyVisiting || null,
+      },
     });
 
     res.status(200).json({
       success: true,
-      profile: updatedProfile,
+      message: "Profile updated successfully",
+      profile,
     });
   } catch (error) {
     res.status(500).json({
