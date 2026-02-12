@@ -6,31 +6,42 @@ import bcrypt from "bcrypt";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
-    const data = req.body;
+    const { email, password, username, isAdmin } = req.body;
 
     const isEmailAlreadyExist = await prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: email },
     });
 
     if (isEmailAlreadyExist) {
-      res.status(400).json({
-        status: 400,
-        message: "Email Already in use",
+      res.status(409).json({
+        message: "Email already in use",
       });
       return;
     }
 
     // Hash the password using bcrypt
     const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(data.password, saltRounds);
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     const user = await prisma.user.create({
       data: {
-        email: data.email,
-        username: data.username,
+        email: email,
+        username: username,
         password: hashedPassword,
-        isAdmin: data.isAdmin ?? false,
+        isAdmin: isAdmin ?? false,
       },
+    });
+
+    const accessToken = jwt.sign(
+      { id: user.id, email: user.email, isAdmin: user.isAdmin },
+      process.env.JWT_SECRET || "YOUR_SECRET",
+      {
+        expiresIn: "1d",
+      },
+    );
+
+    const refreshToken = jwt.sign({ email: email }, "refreshSecret", {
+      expiresIn: "10d",
     });
 
     // Verify user was created by checking if we got back an ID
@@ -45,6 +56,8 @@ export const registerUser = async (req: Request, res: Response) => {
         email: user.email,
         username: user.username,
         isAdmin: user.isAdmin,
+        accessToken,
+        refreshToken,
       },
     });
   } catch (error) {
@@ -65,35 +78,42 @@ export const loginUser = async (req: Request, res: Response) => {
       where: { email: email },
     });
 
-    if (!user) {
-      res.status(404).json({
-        message: "User does not exist. Please sign up",
-      });
-      return;
-    }
-
-    // Compare the plain text password with the hashed password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      res.status(401).json({
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({
         message: "Invalid credentials",
       });
-      return;
     }
 
     // Generate JWT token for authenticated user
-    const token = jwt.sign(
+
+    if (!process.env.JWT_SECRET_ACCESS) {
+      throw new Error("JWT_SECRET_ACCESS not defined");
+    }
+
+    const accessToken = jwt.sign(
       { id: user.id, email: user.email, isAdmin: user.isAdmin },
-      process.env.JWT_SECRET || "YOUR_SECRET",
+      process.env.JWT_SECRET || process.env.JWT_SECRET_ACCESS,
       {
         expiresIn: "1d",
       },
     );
 
+    if (!process.env.JWT_SECRET_REFRESH) {
+      throw new Error("JWT_SECRET_REFRESH is not defined");
+    }
+
+    const refreshToken = jwt.sign(
+      { email: email },
+      process.env.JWT_SECRET_REFRESH,
+      {
+        expiresIn: "10d",
+      },
+    );
+
     res.status(200).json({
       message: "Login successful",
-      token,
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,

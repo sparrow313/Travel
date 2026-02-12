@@ -5,7 +5,8 @@
     "target": "ES2023",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "typeRoots": ["./node_modules/@types", "./src/types"]
     // "ignoreDeprecations": "5.0"
   },
   "include": ["src/**/*.ts"],
