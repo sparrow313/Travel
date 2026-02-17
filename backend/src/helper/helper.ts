@@ -44,6 +44,7 @@ export const isAuthenticated = (
 
     next();
   } catch (error) {
+    console.error("JWT Verification Error:", error);
     return res.status(401).json({
       success: false,
       message: error instanceof Error ? error.message : "Unknown error",

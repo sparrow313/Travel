@@ -1,3 +1,581 @@
-1. Refresh token implementation. ⏯️
-https://medium.com/@had096705/build-authentication-with-refresh-token-using-nodejs-and-express-2b7aea567a3a
-2. add profile api CRUD
+# Travel Wishlist App - Backend Development Roadmap
+
+## ✅ COMPLETED
+
+1. Refresh token implementation
+   https://medium.com/@had096705/build-authentication-with-refresh-token-using-nodejs-and-express-2b7aea567a3a
+2. Profile API CRUD
+
+---
+
+## 🎯 CORE PROBLEM WE'RE SOLVING
+
+**The Bangkok Problem:** User has 20+ saved places from Instagram, lands in a new city, and faces:
+
+- No spatial context (what's near me RIGHT NOW?)
+- No temporal context (is it open? does it make sense to visit now?)
+- Decision fatigue from manual Google Maps checking
+- Travel becoming a checklist instead of enjoyment
+
+**The Solution:** Location-aware travel wishlist with real-time intelligence
+
+---
+
+## 📊 CURRENT STATE
+
+- ✅ User authentication (register, login, refresh token)
+- ✅ Basic profile system (bio, currentlyVisiting)
+- ✅ PostgreSQL + Prisma ORM
+- ✅ JWT-based auth middleware
+
+---
+
+## 🚀 PHASE 1 - MVP (MUST HAVE BEFORE FRONTEND)
+
+### 1. Database Schema - Places & Trips
+
+**Models to Create:**
+
+```prisma
+model Place {
+  id                  Int       @id @default(autoincrement())
+  name                String
+  description         String?
+  latitude            Float
+  longitude           Float
+  address             String?
+  category            String    // cafe, temple, market, restaurant, etc.
+  openingHours        Json?     // Structured opening hours
+  averageVisitDuration Int?     // in minutes
+  bestTimeToVisit     String?   // morning/afternoon/evening/night
+  googleMapsUrl       String?
+  instagramUrl        String?
+  images              String[]  // Array of image URLs
+  createdBy           Int?      // userId who added it
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  userPlaces          UserPlace[]
+  recommendations     Recommendation[]
+  visits              PlaceVisit[]
+}
+
+model Trip {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  name            String    // "Bangkok Sept 2025"
+  city            String
+  country         String?
+  startDate       DateTime?
+  endDate         DateTime?
+  isActive        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id])
+  userPlaces      UserPlace[]
+}
+
+model UserPlace {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  placeId         Int
+  tripId          Int?
+  status          String    @default("wishlist") // wishlist/visited/skipped
+  personalNotes   String?
+  priority        Int?      @default(0)
+  addedFrom       String?   // instagram/maps/tiktok/manual
+  visitedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id])
+  place           Place     @relation(fields: [placeId], references: [id])
+  trip            Trip?     @relation(fields: [tripId], references: [id])
+
+  @@unique([userId, placeId])
+}
+```
+
+**Tasks:**
+
+- [ ] Add Place, Trip, UserPlace models to schema.prisma
+- [ ] Run migration
+- [ ] Update User model with relations
+
+---
+
+### 2. External API Integration - Geocoding
+
+**Purpose:** Convert place names/URLs to coordinates
+
+**Options:**
+
+- Google Places API (recommended - rich data)
+- Mapbox Geocoding API (good alternative)
+
+**Tasks:**
+
+- [ ] Get Google Places API key
+- [ ] Create geocoding service utility
+- [ ] Test geocoding with "Mango Tango Bangkok"
+- [ ] Handle API errors gracefully
+
+**Utility Function Needed:**
+
+```typescript
+// src/services/geocoding.ts
+async function geocodePlace(
+  placeName: string,
+  city?: string,
+): Promise<{
+  lat: number;
+  lng: number;
+  formattedAddress: string;
+  placeId: string;
+}>;
+```
+
+---
+
+### 3. Places API - Basic CRUD
+
+**Endpoints to Build:**
+
+```
+POST   /places/add
+  Body: { name, tripId?, description?, addedFrom?, instagramUrl?, googleMapsUrl? }
+  - Geocode the place name
+  - Store coordinates
+  - Optionally enrich with Google Places data
+
+GET    /places/my-wishlist
+  Query: ?tripId=123&status=wishlist
+  - Get all user's saved places
+  - Filter by trip and status
+
+GET    /places/:id
+  - Get single place details
+
+PATCH  /places/:id/status
+  Body: { status: "visited" | "skipped" | "wishlist", visitedAt? }
+  - Update place status
+
+DELETE /places/:id
+  - Remove from wishlist
+
+GET    /places/by-trip/:tripId
+  - Get all places for a specific trip
+```
+
+**Tasks:**
+
+- [ ] Create places controller
+- [ ] Create places routes
+- [ ] Implement CRUD operations
+- [ ] Add validation (Zod or similar)
+- [ ] Test with Postman/Thunder Client
+
+---
+
+### 4. Trip Management API
+
+**Endpoints to Build:**
+
+```
+POST   /trips
+  Body: { name, city, country?, startDate?, endDate? }
+
+GET    /trips
+  - Get all user trips
+
+GET    /trips/:id
+  - Get trip details with all places
+
+PATCH  /trips/:id/activate
+  - Set as active trip (deactivate others)
+
+PATCH  /trips/:id
+  Body: { name?, city?, startDate?, endDate? }
+
+DELETE /trips/:id
+  - Delete trip (cascade delete userPlaces?)
+```
+
+**Tasks:**
+
+- [ ] Create trips controller
+- [ ] Create trips routes
+- [ ] Implement CRUD operations
+- [ ] Add validation
+- [ ] Test trip creation flow
+
+---
+
+### 5. Proximity Calculation - THE KILLER FEATURE
+
+**Purpose:** Calculate distance from user's current location to all wishlist places
+
+**Haversine Formula Implementation:**
+
+```typescript
+// src/utils/distance.ts
+function calculateDistance(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  // Returns distance in meters
+}
+```
+
+**Endpoint:**
+
+```
+GET /places/nearby
+  Query: ?lat=13.7563&lng=100.5018&radius=5000&tripId=123
+  Response: {
+    places: [
+      {
+        ...placeData,
+        distance: 450, // meters
+        distanceFormatted: "450m"
+      }
+    ]
+  }
+```
+
+**Tasks:**
+
+- [ ] Implement Haversine formula
+- [ ] Create nearby endpoint
+- [ ] Sort by distance
+- [ ] Add radius filtering
+- [ ] Test with real Bangkok coordinates
+
+---
+
+### 6. Smart Filtering - "Magic Mode"
+
+**Purpose:** Show only places that make sense RIGHT NOW
+
+**Logic:**
+
+1. Filter by proximity (within radius)
+2. Filter by opening hours (is it open now?)
+3. Filter by time-of-day relevance (no night markets at noon)
+4. Sort by distance
+
+**Endpoint:**
+
+```
+GET /places/smart-now
+  Query: ?lat=13.7563&lng=100.5018&tripId=123
+  Response: {
+    nearbyNow: [...],      // Close + open + relevant
+    openButFar: [...],     // Open but >5km away
+    closedNow: [...],      // Currently closed
+    notRelevantNow: [...]  // Open but wrong time (night market at noon)
+  }
+```
+
+**Tasks:**
+
+- [ ] Implement opening hours parser
+- [ ] Create time-of-day relevance checker
+- [ ] Build smart filtering logic
+- [ ] Create smart-now endpoint
+- [ ] Test with various times of day
+
+---
+
+## 🎨 PHASE 2 - CORE VALUE (LAUNCH READY)
+
+### 7. Opening Hours Intelligence
+
+**Tasks:**
+
+- [ ] Design opening hours JSON structure
+- [ ] Parse Google Places opening hours
+- [ ] Implement "isOpenNow" function
+- [ ] Implement "closesIn" function (e.g., "closes in 2 hours")
+- [ ] Handle timezone differences
+
+---
+
+### 8. Place Clustering
+
+**Purpose:** Group nearby places ("these 4 are within 1.5km in Chinatown")
+
+**Algorithm:**
+
+- Simple distance-based clustering
+- Or use DBSCAN algorithm
+
+**Endpoint:**
+
+```
+GET /places/clusters
+  Query: ?tripId=123&lat=13.7563&lng=100.5018
+  Response: {
+    clusters: [
+      {
+        area: "Chinatown",
+        centerLat: 13.7563,
+        centerLng: 100.5018,
+        placeCount: 4,
+        avgDistance: 1200,
+        places: [...]
+      }
+    ]
+  }
+```
+
+**Tasks:**
+
+- [ ] Research clustering algorithms
+- [ ] Implement clustering logic
+- [ ] Create clusters endpoint
+- [ ] Test with real data
+
+---
+
+### 9. Community Recommendations System
+
+**Database Models:**
+
+```prisma
+model Recommendation {
+  id              Int       @id @default(autoincrement())
+  placeId         Int
+  recommendedBy   Int       // userId
+  description     String?
+  tastePoints     Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  place           Place     @relation(fields: [placeId], references: [id])
+  recommender     User      @relation(fields: [recommendedBy], references: [id])
+  visits          PlaceVisit[]
+}
+
+model PlaceVisit {
+  id                Int       @id @default(autoincrement())
+  placeId           Int
+  userId            Int
+  recommendationId  Int?
+  rating            Int?      // 1-5
+  confirmedGood     Boolean   @default(false)
+  visitedAt         DateTime  @default(now())
+  notes             String?
+
+  place             Place     @relation(fields: [placeId], references: [id])
+  user              User      @relation(fields: [userId], references: [id])
+  recommendation    Recommendation? @relation(fields: [recommendationId], references: [id])
+}
+
+model UserReputation {
+  id                    Int       @id @default(autoincrement())
+  userId                Int
+  city                  String
+  tastePoints           Int       @default(0)
+  totalRecommendations  Int       @default(0)
+  totalConfirmedVisits  Int       @default(0)
+  rank                  Int?
+
+  user                  User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, city])
+}
+```
+
+**Endpoints:**
+
+```
+POST   /recommendations
+  Body: { placeId, description }
+
+GET    /recommendations/:placeId
+  - Get all recommendations for a place
+
+POST   /visits
+  Body: { placeId, recommendationId?, rating?, notes? }
+
+POST   /visits/:id/confirm-good
+  - Confirm recommendation was good
+  - Award +1 Taste Point to recommender
+
+GET    /leaderboard/:city
+  - Get top recommenders for city
+
+GET    /users/:id/reputation
+  - Get user's reputation stats across cities
+```
+
+**Tasks:**
+
+- [ ] Add recommendation models to schema
+- [ ] Create recommendations controller
+- [ ] Implement reputation point logic
+- [ ] Create leaderboard endpoint
+- [ ] Test reputation flow
+
+---
+
+### 10. Visit Confirmation & Reputation
+
+**Logic Flow:**
+
+1. User A recommends "Mango Tango" in Bangkok
+2. User B visits it (logs visit with recommendationId)
+3. User B confirms "yes, this was great!"
+4. User A gets +1 Taste Point for Bangkok
+5. Leaderboard updates
+
+**Tasks:**
+
+- [ ] Implement visit logging
+- [ ] Implement confirmation logic
+- [ ] Update reputation scores
+- [ ] Calculate rankings
+- [ ] Add reputation badges
+
+---
+
+## 🌟 PHASE 3 - POLISH (POST-LAUNCH)
+
+### 11. Search & Discovery
+
+```
+GET /places/search?q=mango sticky rice&city=Bangkok
+GET /places/trending/:city
+GET /places/by-category/:category
+GET /places/recommended-by/:userId
+```
+
+### 12. Place Data Enrichment
+
+- Fetch photos from Google Places
+- Get reviews and ratings
+- Update opening hours automatically
+- Crowd level data (if available)
+
+### 13. Notifications (Future)
+
+- "You're near 3 wishlist places!"
+- "This place closes in 1 hour"
+- "Someone confirmed your recommendation! +1 Taste Point"
+
+### 14. Advanced Analytics
+
+- Most visited places
+- User travel patterns
+- Popular times to visit
+- Success rate of recommendations
+
+---
+
+## 🛠️ TECHNICAL SETUP NEEDED
+
+### Environment Variables
+
+```env
+DATABASE_URL=
+JWT_SECRET_ACCESS=
+JWT_SECRET_REFRESH=
+GOOGLE_PLACES_API_KEY=
+MAPBOX_API_KEY= (optional)
+```
+
+### Dependencies to Add
+
+```bash
+npm install axios          # For external API calls
+npm install zod            # For validation
+npm install date-fns       # For date/time handling
+```
+
+### Optional - PostGIS for Advanced Geospatial
+
+```sql
+-- If you want advanced geo queries
+CREATE EXTENSION postgis;
+```
+
+---
+
+## 📝 TESTING CHECKLIST
+
+### Before Frontend Development:
+
+- [ ] Can create a trip
+- [ ] Can add 20 places to a trip (mix of names and URLs)
+- [ ] All places get geocoded correctly
+- [ ] Can get nearby places sorted by distance
+- [ ] Smart filtering works (filters by open/closed)
+- [ ] Can mark places as visited
+- [ ] Can recommend a place
+- [ ] Can confirm a recommendation
+- [ ] Reputation points update correctly
+- [ ] Leaderboard shows correct rankings
+
+---
+
+## 🎯 SUCCESS CRITERIA
+
+**You're ready for frontend when:**
+
+1. ✅ User can create trips
+2. ✅ User can add places (by name, Instagram URL, Maps URL)
+3. ✅ Places are automatically geocoded
+4. ✅ GET /places/smart-now returns intelligent, location-aware results
+5. ✅ Opening hours filtering works
+6. ✅ Distance calculations are accurate
+7. ✅ Community recommendations work
+8. ✅ Reputation system awards points correctly
+
+---
+
+## 💡 KEY INSIGHTS
+
+**The app's value is NOT:**
+
+- Having a huge place database
+- Being another social network
+- Replacing Google Maps
+
+**The app's value IS:**
+
+- Real-time, location-aware intelligence
+- Answering "what makes sense RIGHT NOW based on where I am"
+- Reducing decision fatigue
+- Making travel enjoyable, not a checklist
+- Community-validated recommendations with skin in the game (reputation)
+
+---
+
+## 📚 RESOURCES
+
+### APIs
+
+- Google Places API: https://developers.google.com/maps/documentation/places/web-service
+- Mapbox Geocoding: https://docs.mapbox.com/api/search/geocoding/
+- Haversine Formula: https://en.wikipedia.org/wiki/Haversine_formula
+
+### Algorithms
+
+- DBSCAN Clustering: https://en.wikipedia.org/wiki/DBSCAN
+- Geospatial Queries: https://postgis.net/
+
+---
+
+## 🚦 CURRENT PRIORITY
+
+**NEXT IMMEDIATE STEPS:**
+
+1. Design database schema (Place, Trip, UserPlace models)
+2. Set up Google Places API
+3. Implement basic CRUD for places and trips
+4. Build proximity calculation (Haversine)
+5. Create smart filtering endpoint
+6. Test with real Bangkok data
+
+**Focus on Phase 1 first.** Once these 6 things work, you can confidently build the frontend.

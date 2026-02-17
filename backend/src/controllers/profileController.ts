@@ -14,7 +14,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
     // Only fetch the profile data from DB, user info is already in req.user
     const profile = await prisma.profile.findUnique({
       where: {
-        id: user.id,
+        userId: user.id,
       },
     });
 
@@ -52,7 +52,7 @@ export const createUserProfile = async (req: Request, res: Response) => {
     // Check if profile already exists
     const existingProfile = await prisma.profile.findUnique({
       where: {
-        id: user.id,
+        userId: user.id,
       },
     });
 
@@ -67,7 +67,7 @@ export const createUserProfile = async (req: Request, res: Response) => {
     // Create profile with user ID
     const profile = await prisma.profile.create({
       data: {
-        id: user.id, // Must match user ID due to schema
+        userId: user.id, // Foreign key to User table
         bio,
         currentlyVisiting,
       },
@@ -117,11 +117,11 @@ export const updateProfile = async (req: Request, res: Response) => {
     // This is more efficient than checking existence first
     const profile = await prisma.profile.upsert({
       where: {
-        id: user.id,
+        userId: user.id,
       },
       update: updateData, // Only updates provided fields
       create: {
-        id: user.id,
+        userId: user.id,
         bio: bio || "",
         currentlyVisiting: currentlyVisiting || null,
       },
