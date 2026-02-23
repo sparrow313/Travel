@@ -3,20 +3,24 @@ import { prisma } from "../../lib/prisma.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { RefreshTokenPayload } from "../types/jwt.js";
+import { registerSchema, loginSchema } from "../utils/validation.js";
+import { z } from "zod";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
-    const { email, password, username, isAdmin } = req.body;
+    // Validate and parse input with Zod
+    const validatedData = registerSchema.parse(req.body);
+    const { email, password, username } = validatedData;
 
+    // Check if email already exists
     const isEmailAlreadyExist = await prisma.user.findUnique({
-      where: { email: email },
+      where: { email },
     });
 
     if (isEmailAlreadyExist) {
-      res.status(409).json({
+      return res.status(409).json({
         message: "Email already in use",
       });
-      return;
     }
 
     // Hash the password using bcrypt
@@ -25,10 +29,9 @@ export const registerUser = async (req: Request, res: Response) => {
 
     const user = await prisma.user.create({
       data: {
-        email: email,
-        username: username,
+        email,
+        username,
         password: hashedPassword,
-        isAdmin: isAdmin ?? false,
       },
     });
 
@@ -49,9 +52,17 @@ export const registerUser = async (req: Request, res: Response) => {
       },
     );
 
-    const refreshToken = jwt.sign({ email: email }, "refreshSecret", {
-      expiresIn: "10d",
-    });
+    if (!process.env.JWT_SECRET_REFRESH) {
+      throw new Error("JWT_SECRET_REFRESH is not defined");
+    }
+
+    const refreshToken = jwt.sign(
+      { email: email },
+      process.env.JWT_SECRET_REFRESH,
+      {
+        expiresIn: "10d",
+      },
+    );
 
     // Verify user was created by checking if we got back an ID
     if (!user || !user.id) {
@@ -70,21 +81,29 @@ export const registerUser = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        message: error.issues[0].message,
+      });
+    }
+
     console.error("Error registering user:", error);
     res.status(500).json({
       message: "Failed to register user",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
 export const loginUser = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    // Validate and parse input with Zod
+    const validatedData = loginSchema.parse(req.body);
+    const { email, password } = validatedData;
 
     // Find user by email
     const user = await prisma.user.findUnique({
-      where: { email: email },
+      where: { email },
     });
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
@@ -136,10 +155,16 @@ export const loginUser = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        message: error.issues[0].message,
+      });
+    }
+
     console.error("Error logging in", error);
     res.status(500).json({
       message: "Failed to login user",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -223,7 +248,6 @@ export const getAccessToken = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Failed to refresh access token",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };

@@ -7,6 +7,8 @@ const app = express();
 import userRoute from "./routes/usersRoute";
 import profileRoute from "./routes/profileRoute";
 import placeRoutes from "../src/routes/placeRoutes";
+import reviewRoutes from "./routes/reviewRoutes";
+import tripRoutes from "./routes/tripRoutes";
 
 const port = process.env.PORT || 5000;
 
@@ -26,6 +28,8 @@ app.get("/", isAuthenticated, (req: Request, res: Response) => {
 app.use("/", userRoute);
 app.use("/profile", isAuthenticated, profileRoute);
 app.use("/places", isAuthenticated, placeRoutes);
+app.use("/reviews", reviewRoutes);
+app.use("/trips", tripRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);

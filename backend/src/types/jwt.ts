@@ -8,7 +8,6 @@ export interface AccessTokenPayload extends JwtPayload {
   id: number;
   email: string;
   username: string;
-  isAdmin: boolean;
 }
 
 /**
@@ -18,4 +17,3 @@ export interface AccessTokenPayload extends JwtPayload {
 export interface RefreshTokenPayload extends JwtPayload {
   email: string;
 }
-

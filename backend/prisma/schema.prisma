@@ -21,6 +21,8 @@ model User {
   isAdmin     Boolean          @default(false)
   profile     Profile?
   savedPlaces UserSavedPlace[]
+  reviews     Review[]
+  trips       Trip[]
 }
 
 model Profile {
@@ -40,8 +42,9 @@ model Place {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cache GooglePlaceCache?
-  saves UserSavedPlace[]
+  cache   GooglePlaceCache?
+  saves   UserSavedPlace[]
+  reviews Review[]
 
   @@index([placeId])
 }
@@ -63,19 +66,69 @@ model GooglePlaceCache {
   @@index([fetchedAt])
 }
 
+model Trip {
+  id      String  @id @default(cuid())
+  userId  Int
+  name    String  @default("My Trip")
+  city    String?
+  Country String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savedPlaces UserSavedPlace[]
+
+  @@index([userId])
+}
+
 model UserSavedPlace {
+  id String @id @default(cuid())
+
+  userId    Int
+  placeId   String
+  tripId    String
+  status    Status    @default(WISHLIST)
+  userNotes String?
+  visitedAt DateTime? // Timestamp when status changed to VISITED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+  trip  Trip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, placeId])
+  @@index([userId])
+  @@index([placeId])
+  @@index([status])
+  @@index([visitedAt])
+}
+
+model Review {
   id String @id @default(cuid())
 
   userId  Int
   placeId String
 
-  userNotes String?
+  rating  Int // 1-5 stars
+  comment String // Review text
 
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  place     Place    @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
 
-  @@unique([userId, placeId])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
+
+  @@unique([userId, placeId]) // One review per user per place
   @@index([userId])
   @@index([placeId])
+  @@index([rating]) // For filtering by rating
+}
+
+enum Status {
+  WISHLIST
+  VISITED
+  SKIPPED
 }

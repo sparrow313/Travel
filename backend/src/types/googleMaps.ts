@@ -76,6 +76,7 @@ export interface GooglePlacePhoto {
 export interface GooglePlace {
   place_id: string; // Unique Google Place ID (store this!)
   name: string;
+  trip_id?: string;
   formatted_address?: string;
   geometry: GoogleMapsGeometry;
 

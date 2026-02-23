@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Trip" ADD COLUMN     "Country" TEXT,
+ALTER COLUMN "name" SET DEFAULT 'My Trip',
+ALTER COLUMN "city" DROP NOT NULL;

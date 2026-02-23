@@ -1,23 +1,38 @@
 import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { GooglePlaceRequestBody, GooglePlace } from "../types/googleMaps.js";
+import { Status } from "../../generated/prisma/enums.js";
 
 /**
- * Controller to create a place from Google Maps/Places data
+ * Combined endpoint: Create/Find place from Google Maps AND save to user's saved places
  *
  * This function:
  * 1. Receives Google Places API data from the request body
- * 2. Extracts the place information
- * 3. Maps Google Places fields to our database schema
- * 4. Creates a new place in the database with cache data
+ * 2. Creates the place if it doesn't exist (or finds existing)
+ * 3. Saves the place to the user's saved places with status
  */
-export const getPlaceFromGoogleMaps = async (
-  req: Request<{}, {}, GooglePlaceRequestBody>, // Request with typed body
+export const addPlaceFromGoogleMapsToDb = async (
+  req: Request<
+    {},
+    {},
+    GooglePlaceRequestBody & {
+      status?: Status;
+      userNotes?: string;
+      trip_id?: string;
+    }
+  >,
   res: Response,
 ) => {
   try {
-    // Type the request body for better autocomplete and type safety
-    const data: GooglePlaceRequestBody = req.body;
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const data = req.body;
 
     // Validate that we have place data
     if (!data.place) {
@@ -48,77 +63,258 @@ export const getPlaceFromGoogleMaps = async (
     const latitude = place.geometry.location.lat;
     const longitude = place.geometry.location.lng;
 
+    // Extract optional status and userNotes from request body
+    const status = data.status || Status.WISHLIST;
+    const userNotes = data.userNotes;
+
+    // Get or create trip
+    let tripId = data.trip_id;
+
+    if (!tripId) {
+      // Auto-create or find default trip for the user
+      let defaultTrip = await prisma.trip.findFirst({
+        where: {
+          userId: user.id,
+          name: "My Trip",
+        },
+      });
+
+      if (!defaultTrip) {
+        defaultTrip = await prisma.trip.create({
+          data: {
+            userId: user.id,
+            name: "My Trip",
+          },
+        });
+      }
+
+      tripId = defaultTrip.id;
+    } else {
+      // Validate that the provided trip exists and belongs to the user
+      const trip = await prisma.trip.findUnique({
+        where: { id: tripId },
+      });
+
+      if (!trip) {
+        return res.status(404).json({
+          success: false,
+          message: "Trip not found",
+        });
+      }
+
+      if (trip.userId !== user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "You don't have permission to add places to this trip",
+        });
+      }
+    }
+
     // Check if place already exists
-    const existingPlace = await prisma.place.findUnique({
+    let existingPlace = await prisma.place.findUnique({
       where: { placeId: place.place_id },
       include: { cache: true },
     });
 
-    if (existingPlace) {
-      return res.status(200).json({
-        success: true,
-        message: "Place already exists",
-        data: existingPlace,
+    // If place doesn't exist, create it
+    if (!existingPlace) {
+      existingPlace = await prisma.place.create({
+        data: {
+          placeId: place.place_id,
+          lat: latitude,
+          lng: longitude,
+          cache: {
+            create: {
+              formattedAddress: place.formatted_address,
+              addressJson: place as any,
+              types: place.types ? (place.types as any) : undefined,
+              plusCode: place.plus_code ? (place.plus_code as any) : undefined,
+              viewport: place.geometry?.viewport
+                ? (place.geometry.viewport as any)
+                : undefined,
+            },
+          },
+        },
+        include: {
+          cache: true,
+        },
       });
     }
 
-    // Create the place in database with Google Places data
-    const newPlace = await prisma.place.create({
-      data: {
-        placeId: place.place_id, // Google Place ID as unique identifier
-        lat: latitude,
-        lng: longitude,
+    // Check if user has already saved this place
+    const existingSavedPlace = await prisma.userSavedPlace.findUnique({
+      where: {
+        userId_placeId: {
+          userId: user.id,
+          placeId: place.place_id,
+        },
+      },
+    });
 
-        // Create cache data with Google Places information
-        cache: {
-          create: {
-            formattedAddress: place.formatted_address || undefined,
-            addressJson: {
-              name: place.name,
-              formatted_address: place.formatted_address,
-              address_components: place.address_components,
-              vicinity: place.vicinity,
-              rating: place.rating,
-              user_ratings_total: place.user_ratings_total,
-              price_level: place.price_level,
-              opening_hours: place.opening_hours,
-              website: place.website,
-              url: place.url,
-              phone: place.formatted_phone_number,
-              international_phone: place.international_phone_number,
-              business_status: place.business_status,
-            } as any,
-            types: place.types ? (place.types as any) : undefined,
-            plusCode: place.plus_code?.global_code || undefined,
-            viewport: place.geometry.viewport
-              ? (place.geometry.viewport as any)
-              : undefined,
+    if (existingSavedPlace) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already saved this place",
+        data: existingSavedPlace,
+      });
+    }
+
+    // Save the place to user's saved places
+    const savedPlace = await prisma.userSavedPlace.create({
+      data: {
+        userId: user.id,
+        placeId: place.place_id,
+        tripId: tripId,
+        status: status,
+        userNotes: userNotes,
+
+        // Set visitedAt if status is VISITED
+        visitedAt: status === Status.VISITED ? new Date() : null,
+      },
+      include: {
+        place: {
+          include: {
+            cache: true,
           },
         },
       },
-      include: {
-        cache: true, // Include cache in response
-      },
     });
 
-    // Return success response
     return res.status(201).json({
       success: true,
-      message: "Place created successfully from Google Maps",
-      data: newPlace,
+      message: "Place created and saved successfully",
+      data: savedPlace,
     });
   } catch (error) {
-    // Log error for debugging
-    console.error("Error creating place from Google Maps:", error);
-
-    // Return error response
+    console.error("Error adding place and saving:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to create place",
+      message: "Failed to add and save place",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
-// Keep the old name as an alias for backward compatibility
-export const getPlaceFromMapbox = getPlaceFromGoogleMaps;
+export const getSavedPlaces = async (req: Request, res: Response) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const savedPlaces = await prisma.userSavedPlace.findMany({
+      where: {
+        userId: user.id,
+      },
+      include: {
+        place: {
+          include: {
+            cache: true,
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: savedPlaces,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch saved places",
+    });
+  }
+};
+
+export const getAllPlaces = async (req: Request, res: Response) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const savedPlaces = await prisma.place.findMany({
+      include: { cache: true },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: savedPlaces,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch saved places",
+    });
+  }
+};
+
+export const updatePlaceStatus = async (
+  req: Request<{ place_id: string; status?: Status; userNotes?: string }>,
+  res: Response,
+) => {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const { place_id, status, userNotes } = req.body;
+
+    // Build update data
+    const updateData: {
+      status?: Status;
+      userNotes?: string;
+      visitedAt?: Date | null;
+    } = {};
+
+    if (status !== undefined) {
+      updateData.status = status;
+      // Automatically set visitedAt when status changes to VISITED
+      if (status === Status.VISITED) {
+        updateData.visitedAt = new Date();
+      } else {
+        // Clear visitedAt if status changes away from VISITED
+        updateData.visitedAt = null;
+      }
+    }
+
+    if (userNotes !== undefined) {
+      updateData.userNotes = userNotes;
+    }
+
+    const updatedPlace = await prisma.userSavedPlace.update({
+      where: {
+        userId_placeId: {
+          userId: user.id,
+          placeId: place_id,
+        },
+      },
+      data: updateData,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Place status updated successfully",
+      data: updatedPlace,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update place status",
+    });
+  }
+};
