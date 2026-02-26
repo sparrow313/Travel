@@ -318,3 +318,189 @@ export const updatePlaceStatus = async (
     });
   }
 };
+
+/**
+ * Get nearby saved places within a specified radius
+ *
+ * Query parameters:
+ * - lat: User's current latitude
+ * - lng: User's current longitude
+ * - radius: Search radius in meters (default: 2000)
+ * - status: Optional filter by place status (WISHLIST, VISITED, SKIPPED)
+ *
+ * Returns user's saved places sorted by distance (closest first)
+ */
+export const getNearbyPlaces = async (req: Request, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    // Extract and validate query parameters
+    const { lat, lng, radius, status } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Latitude (lat) and longitude (lng) are required query parameters",
+      });
+    }
+
+    const userLat = parseFloat(lat as string);
+    const userLng = parseFloat(lng as string);
+    const radiusMeters = radius ? parseFloat(radius as string) : 2000; // Default 2km
+    const radiusKm = radiusMeters / 1000;
+
+    // Validate coordinates
+    if (isNaN(userLat) || isNaN(userLng) || isNaN(radiusMeters)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid latitude, longitude, or radius values",
+      });
+    }
+
+    if (userLat < -90 || userLat > 90) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude must be between -90 and 90",
+      });
+    }
+
+    if (userLng < -180 || userLng > 180) {
+      return res.status(400).json({
+        success: false,
+        message: "Longitude must be between -180 and 180",
+      });
+    }
+
+    if (radiusMeters <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Radius must be greater than 0",
+      });
+    }
+
+    // Use Prisma's raw query with Haversine formula
+    // This calculates the distance between user's location and each saved place
+    let nearbyPlaces: any[];
+
+    if (status) {
+      // Query with status filter
+      nearbyPlaces = await prisma.$queryRaw<any[]>`
+        SELECT
+          usp.id,
+          usp."userId",
+          usp."placeId",
+          usp."tripId",
+          usp.status,
+          usp."userNotes",
+          usp."visitedAt",
+          usp."createdAt",
+          usp."updatedAt",
+          p.lat,
+          p.lng,
+          (
+            6371 * acos(
+              cos(radians(${userLat})) * cos(radians(p.lat)) *
+              cos(radians(p.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(p.lat))
+            )
+          ) AS "distanceKm"
+        FROM "UserSavedPlace" usp
+        JOIN "Place" p ON usp."placeId" = p."placeId"
+        WHERE usp."userId" = ${user.id}
+          AND usp.status = ${status}::"Status"
+          AND (
+            6371 * acos(
+              cos(radians(${userLat})) * cos(radians(p.lat)) *
+              cos(radians(p.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(p.lat))
+            )
+          ) <= ${radiusKm}
+        ORDER BY "distanceKm" ASC
+      `;
+    } else {
+      // Query without status filter
+      nearbyPlaces = await prisma.$queryRaw<any[]>`
+        SELECT
+          usp.id,
+          usp."userId",
+          usp."placeId",
+          usp."tripId",
+          usp.status,
+          usp."userNotes",
+          usp."visitedAt",
+          usp."createdAt",
+          usp."updatedAt",
+          p.lat,
+          p.lng,
+          (
+            6371 * acos(
+              cos(radians(${userLat})) * cos(radians(p.lat)) *
+              cos(radians(p.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(p.lat))
+            )
+          ) AS "distanceKm"
+        FROM "UserSavedPlace" usp
+        JOIN "Place" p ON usp."placeId" = p."placeId"
+        WHERE usp."userId" = ${user.id}
+          AND (
+            6371 * acos(
+              cos(radians(${userLat})) * cos(radians(p.lat)) *
+              cos(radians(p.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(p.lat))
+            )
+          ) <= ${radiusKm}
+        ORDER BY "distanceKm" ASC
+      `;
+    }
+
+    // Fetch additional place details (cache data) for each nearby place
+    const placesWithDetails = await Promise.all(
+      nearbyPlaces.map(async (savedPlace) => {
+        const placeDetails = await prisma.place.findUnique({
+          where: { placeId: savedPlace.placeId },
+          include: {
+            cache: true,
+          },
+        });
+
+        return {
+          ...savedPlace,
+          distanceKm: Number(savedPlace.distanceKm.toFixed(2)), // Round to 2 decimal places
+          distanceMeters: Math.round(Number(savedPlace.distanceKm) * 1000),
+          place: placeDetails,
+        };
+      }),
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Found ${placesWithDetails.length} place(s) within ${radiusKm}km`,
+      data: {
+        userLocation: {
+          lat: userLat,
+          lng: userLng,
+        },
+        radius: {
+          meters: radiusMeters,
+          kilometers: radiusKm,
+        },
+        count: placesWithDetails.length,
+        places: placesWithDetails,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching nearby places:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch nearby places",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
