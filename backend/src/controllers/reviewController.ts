@@ -196,7 +196,6 @@ export const getReviewsForSavedPlaces = async (req: Request, res: Response) => {
                 createdAt: "desc",
               },
             },
-            cache: true,
           },
         },
       },
@@ -213,9 +212,7 @@ export const getReviewsForSavedPlaces = async (req: Request, res: Response) => {
 
       return {
         placeId: savedPlace.place.placeId,
-        placeName: savedPlace.place.cache?.addressJson
-          ? (savedPlace.place.cache.addressJson as any).name
-          : "Unknown Place",
+        placeName: "Saved place",
         userNotes: savedPlace.userNotes,
         savedAt: savedPlace.createdAt,
         reviews: reviews,

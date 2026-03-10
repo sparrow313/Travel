@@ -60,7 +60,7 @@ export const registerUser = async (req: Request, res: Response) => {
       { email: email },
       process.env.JWT_SECRET_REFRESH,
       {
-        expiresIn: "10d",
+        expiresIn: "14d",
       },
     );
 
@@ -127,7 +127,7 @@ export const loginUser = async (req: Request, res: Response) => {
       },
       process.env.JWT_SECRET_ACCESS,
       {
-        expiresIn: "1d",
+        expiresIn: "7d",
       },
     );
 

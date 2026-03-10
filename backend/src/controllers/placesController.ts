@@ -3,6 +3,8 @@ import { prisma } from "../../lib/prisma.js";
 import { GooglePlaceRequestBody, GooglePlace } from "../types/googleMaps.js";
 import { Status } from "../../generated/prisma/enums.js";
 
+const THIRTY_DAYS_IN_MS = 30 * 24 * 60 * 60 * 1000;
+
 /**
  * Combined endpoint: Create/Find place from Google Maps AND save to user's saved places
  *
@@ -110,54 +112,61 @@ export const addPlaceFromGoogleMapsToDb = async (
       }
     }
 
-    // Check if place already exists
-    let existingPlace = await prisma.place.findUnique({
-      where: { placeId: place.place_id },
-      include: { cache: true },
-    });
+    const ensurePlaceAndRefreshCache = async (fetchedAt: Date) => {
+      await prisma.place.upsert({
+        where: { placeId: place.place_id },
+        update: {},
+        create: {
+          placeId: place.place_id,
+        },
+      });
 
-    // If place doesn't exist, create it
-    if (!existingPlace) {
-      existingPlace = await prisma.place.create({
-        data: {
+      await prisma.googlePlaceCache.upsert({
+        where: { placeId: place.place_id },
+        update: {
+          lat: latitude,
+          lng: longitude,
+          fetchedAt,
+        },
+        create: {
           placeId: place.place_id,
           lat: latitude,
           lng: longitude,
-          cache: {
-            create: {
-              formattedAddress: place.formatted_address,
-              addressJson: place as any,
-              types: place.types ? (place.types as any) : undefined,
-              plusCode: place.plus_code ? (place.plus_code as any) : undefined,
-              viewport: place.geometry?.viewport
-                ? (place.geometry.viewport as any)
-                : undefined,
-            },
-          },
-        },
-        include: {
-          cache: true,
+          fetchedAt,
         },
       });
-    }
+    };
 
-    // Check if user has already saved this place
-    const existingSavedPlace = await prisma.userSavedPlace.findUnique({
+    // Prevent duplicate saves of the same place within the same trip
+    const existingSavedPlace = await prisma.userSavedPlace.findFirst({
       where: {
-        userId_placeId: {
-          userId: user.id,
-          placeId: place.place_id,
-        },
+        userId: user.id,
+        placeId: place.place_id,
+        tripId: tripId,
       },
     });
 
     if (existingSavedPlace) {
+      const existingCache = await prisma.googlePlaceCache.findUnique({
+        where: { placeId: place.place_id },
+      });
+
+      const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_IN_MS);
+      const isCacheFresh =
+        existingCache !== null && existingCache.fetchedAt >= thirtyDaysAgo;
+
+      if (!isCacheFresh) {
+        await ensurePlaceAndRefreshCache(new Date());
+      }
+
       return res.status(400).json({
         success: false,
-        message: "You have already saved this place",
+        message: "You have already saved this place in this trip",
         data: existingSavedPlace,
       });
     }
+
+    await ensurePlaceAndRefreshCache(new Date());
 
     // Save the place to user's saved places
     const savedPlace = await prisma.userSavedPlace.create({
@@ -259,7 +268,11 @@ export const getAllPlaces = async (req: Request, res: Response) => {
 };
 
 export const updatePlaceStatus = async (
-  req: Request<{ place_id: string; status?: Status; userNotes?: string }>,
+  req: Request<
+    {},
+    {},
+    { place_id: string; trip_id: string; status?: Status; userNotes?: string }
+  >,
   res: Response,
 ) => {
   try {
@@ -272,7 +285,14 @@ export const updatePlaceStatus = async (
       });
     }
 
-    const { place_id, status, userNotes } = req.body;
+    const { place_id, trip_id, status, userNotes } = req.body;
+
+    if (!place_id || !trip_id) {
+      return res.status(400).json({
+        success: false,
+        message: "place_id and trip_id are required",
+      });
+    }
 
     // Build update data
     const updateData: {
@@ -296,12 +316,24 @@ export const updatePlaceStatus = async (
       updateData.userNotes = userNotes;
     }
 
+    const savedPlace = await prisma.userSavedPlace.findFirst({
+      where: {
+        userId: user.id,
+        placeId: place_id,
+        tripId: trip_id,
+      },
+    });
+
+    if (!savedPlace) {
+      return res.status(404).json({
+        success: false,
+        message: "Saved place not found for this trip",
+      });
+    }
+
     const updatedPlace = await prisma.userSavedPlace.update({
       where: {
-        userId_placeId: {
-          userId: user.id,
-          placeId: place_id,
-        },
+        id: savedPlace.id,
       },
       data: updateData,
     });
@@ -385,11 +417,24 @@ export const getNearbyPlaces = async (req: Request, res: Response) => {
       });
     }
 
-    // Use Prisma's raw query with Haversine formula
-    // This calculates the distance between user's location and each saved place
+    const validStatuses = Object.values(Status);
+    if (
+      status !== undefined &&
+      (typeof status !== "string" || !validStatuses.includes(status as Status))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+      });
+    }
+
+    const statusFilter = status as Status | undefined;
+
+    // Use Prisma's raw query with Haversine formula against the temporary
+    // GooglePlaceCache coordinates. Only use coordinates refreshed within 30 days.
     let nearbyPlaces: any[];
 
-    if (status) {
+    if (statusFilter) {
       // Query with status filter
       nearbyPlaces = await prisma.$queryRaw<any[]>`
         SELECT
@@ -402,24 +447,25 @@ export const getNearbyPlaces = async (req: Request, res: Response) => {
           usp."visitedAt",
           usp."createdAt",
           usp."updatedAt",
-          p.lat,
-          p.lng,
+          gpc.lat,
+          gpc.lng,
           (
             6371 * acos(
-              cos(radians(${userLat})) * cos(radians(p.lat)) *
-              cos(radians(p.lng) - radians(${userLng})) +
-              sin(radians(${userLat})) * sin(radians(p.lat))
+              cos(radians(${userLat})) * cos(radians(gpc.lat)) *
+              cos(radians(gpc.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(gpc.lat))
             )
           ) AS "distanceKm"
         FROM "UserSavedPlace" usp
-        JOIN "Place" p ON usp."placeId" = p."placeId"
+        JOIN "GooglePlaceCache" gpc ON usp."placeId" = gpc."placeId"
         WHERE usp."userId" = ${user.id}
-          AND usp.status = ${status}::"Status"
+          AND usp.status = ${statusFilter}::"Status"
+          AND gpc."fetchedAt" >= NOW() - INTERVAL '30 days'
           AND (
             6371 * acos(
-              cos(radians(${userLat})) * cos(radians(p.lat)) *
-              cos(radians(p.lng) - radians(${userLng})) +
-              sin(radians(${userLat})) * sin(radians(p.lat))
+              cos(radians(${userLat})) * cos(radians(gpc.lat)) *
+              cos(radians(gpc.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(gpc.lat))
             )
           ) <= ${radiusKm}
         ORDER BY "distanceKm" ASC
@@ -437,23 +483,24 @@ export const getNearbyPlaces = async (req: Request, res: Response) => {
           usp."visitedAt",
           usp."createdAt",
           usp."updatedAt",
-          p.lat,
-          p.lng,
+          gpc.lat,
+          gpc.lng,
           (
             6371 * acos(
-              cos(radians(${userLat})) * cos(radians(p.lat)) *
-              cos(radians(p.lng) - radians(${userLng})) +
-              sin(radians(${userLat})) * sin(radians(p.lat))
+              cos(radians(${userLat})) * cos(radians(gpc.lat)) *
+              cos(radians(gpc.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(gpc.lat))
             )
           ) AS "distanceKm"
         FROM "UserSavedPlace" usp
-        JOIN "Place" p ON usp."placeId" = p."placeId"
+        JOIN "GooglePlaceCache" gpc ON usp."placeId" = gpc."placeId"
         WHERE usp."userId" = ${user.id}
+          AND gpc."fetchedAt" >= NOW() - INTERVAL '30 days'
           AND (
             6371 * acos(
-              cos(radians(${userLat})) * cos(radians(p.lat)) *
-              cos(radians(p.lng) - radians(${userLng})) +
-              sin(radians(${userLat})) * sin(radians(p.lat))
+              cos(radians(${userLat})) * cos(radians(gpc.lat)) *
+              cos(radians(gpc.lng) - radians(${userLng})) +
+              sin(radians(${userLat})) * sin(radians(gpc.lat))
             )
           ) <= ${radiusKm}
         ORDER BY "distanceKm" ASC

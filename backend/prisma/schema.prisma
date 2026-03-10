@@ -36,13 +36,12 @@ model Profile {
 model Place {
   id      String @id @default(cuid())
   placeId String @unique
-  lat     Float
-  lng     Float
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cache   GooglePlaceCache?
+  cache GooglePlaceCache?
+
   saves   UserSavedPlace[]
   reviews Review[]
 
@@ -52,12 +51,12 @@ model Place {
 model GooglePlaceCache {
   id String @id @default(cuid())
 
-  placeId          String  @unique
-  formattedAddress String?
-  addressJson      Json?
-  types            Json?
-  plusCode         Json?
-  viewport         Json?
+  // Temporary coordinates cache only.
+  // Per current policy direction, keep placeId permanently in Place,
+  // and refresh/delete lat/lng based on fetchedAt within 30 days.
+  placeId String @unique
+  lat     Float
+  lng     Float
 
   fetchedAt DateTime @default(now())
 
@@ -99,9 +98,10 @@ model UserSavedPlace {
   place Place @relation(fields: [placeId], references: [placeId], onDelete: Cascade)
   trip  Trip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, placeId])
+  @@unique([userId, placeId, tripId])
   @@index([userId])
   @@index([placeId])
+  @@index([tripId])
   @@index([status])
   @@index([visitedAt])
 }
