@@ -15,7 +15,7 @@ export const createTrip = async (req: Request, res: Response) => {
       });
     }
 
-    const { name, city, Country } = req.body;
+    const { name, city, Country, countryCode, startDate, endDate, hasItinerary } = req.body;
 
     // Validate required fields
     if (!name || name.trim().length === 0) {
@@ -25,12 +25,48 @@ export const createTrip = async (req: Request, res: Response) => {
       });
     }
 
+    // Parse dates if provided (accept ISO strings)
+    const parsedStart = startDate ? new Date(startDate) : null;
+    const parsedEnd = endDate ? new Date(endDate) : null;
+
+    if (parsedStart && isNaN(parsedStart.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid start date format",
+      });
+    }
+
+    if (parsedEnd && isNaN(parsedEnd.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid end date format",
+      });
+    }
+
+    if (parsedStart && parsedEnd && parsedStart > parsedEnd) {
+      return res.status(400).json({
+        success: false,
+        message: "End date must be after start date",
+      });
+    }
+
+    if (hasItinerary && (!parsedStart || !parsedEnd)) {
+      return res.status(400).json({
+        success: false,
+        message: "Start and end dates are required when itinerary is enabled",
+      });
+    }
+
     const trip = await prisma.trip.create({
       data: {
         userId: user.id,
         name: name.trim(),
         city: city?.trim() || null,
         Country: Country?.trim() || null,
+        countryCode: countryCode?.trim() || null,
+        startDate: parsedStart,
+        endDate: parsedEnd,
+        hasItinerary: hasItinerary ?? false,
       },
     });
 
@@ -172,7 +208,7 @@ export const updateTrip = async (
     }
 
     const { id } = req.params;
-    const { name, city, Country } = req.body;
+    const { name, city, Country, countryCode, startDate, endDate, hasItinerary } = req.body;
 
     // Check if trip exists and belongs to user
     const existingTrip = await prisma.trip.findUnique({
@@ -198,6 +234,10 @@ export const updateTrip = async (
       name?: string;
       city?: string | null;
       Country?: string | null;
+      countryCode?: string | null;
+      startDate?: Date | null;
+      endDate?: Date | null;
+      hasItinerary?: boolean;
     } = {};
 
     if (name !== undefined) {
@@ -216,6 +256,30 @@ export const updateTrip = async (
 
     if (Country !== undefined) {
       updateData.Country = Country?.trim() || null;
+    }
+
+    if (countryCode !== undefined) {
+      updateData.countryCode = countryCode?.trim() || null;
+    }
+
+    if (startDate !== undefined) {
+      const parsed = startDate ? new Date(startDate) : null;
+      if (parsed && isNaN(parsed.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid start date format" });
+      }
+      updateData.startDate = parsed;
+    }
+
+    if (endDate !== undefined) {
+      const parsed = endDate ? new Date(endDate) : null;
+      if (parsed && isNaN(parsed.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid end date format" });
+      }
+      updateData.endDate = parsed;
+    }
+
+    if (hasItinerary !== undefined) {
+      updateData.hasItinerary = hasItinerary;
     }
 
     const updatedTrip = await prisma.trip.update({

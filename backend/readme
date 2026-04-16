@@ -13,11 +13,10 @@
 **The Bangkok Problem:** User has 20+ saved places from Instagram, lands in a new city, and faces:
 
 - No spatial context (what's near me RIGHT NOW?)
-- No temporal context (is it open? does it make sense to visit now?)
 - Decision fatigue from manual Google Maps checking
 - Travel becoming a checklist instead of enjoyment
 
-**The Solution:** Location-aware travel wishlist with real-time intelligence
+**The Solution:** Location-aware travel wishlist with proximity intelligence
 
 ---
 
@@ -45,9 +44,6 @@ model Place {
   longitude           Float
   address             String?
   category            String    // cafe, temple, market, restaurant, etc.
-  openingHours        Json?     // Structured opening hours
-  averageVisitDuration Int?     // in minutes
-  bestTimeToVisit     String?   // morning/afternoon/evening/night
   googleMapsUrl       String?
   instagramUrl        String?
   images              String[]  // Array of image URLs
@@ -254,55 +250,38 @@ GET /places/nearby
 
 ---
 
-### 6. Smart Filtering - "Magic Mode"
+### 6. Basic Filtering
 
-**Purpose:** Show only places that make sense RIGHT NOW
+**Purpose:** Show places sorted by proximity
 
 **Logic:**
 
 1. Filter by proximity (within radius)
-2. Filter by opening hours (is it open now?)
-3. Filter by time-of-day relevance (no night markets at noon)
-4. Sort by distance
+2. Sort by distance
+3. Optional category filtering
 
 **Endpoint:**
 
 ```
-GET /places/smart-now
-  Query: ?lat=13.7563&lng=100.5018&tripId=123
+GET /places/filtered
+  Query: ?lat=13.7563&lng=100.5018&tripId=123&radius=5000&category=restaurant
   Response: {
-    nearbyNow: [...],      // Close + open + relevant
-    openButFar: [...],     // Open but >5km away
-    closedNow: [...],      // Currently closed
-    notRelevantNow: [...]  // Open but wrong time (night market at noon)
+    places: [...],  // Sorted by distance
+    total: 15
   }
 ```
 
 **Tasks:**
 
-- [ ] Implement opening hours parser
-- [ ] Create time-of-day relevance checker
-- [ ] Build smart filtering logic
-- [ ] Create smart-now endpoint
-- [ ] Test with various times of day
+- [ ] Create filtered endpoint
+- [ ] Add category filtering
+- [ ] Test with various locations
 
 ---
 
 ## 🎨 PHASE 2 - CORE VALUE (LAUNCH READY)
 
-### 7. Opening Hours Intelligence
-
-**Tasks:**
-
-- [ ] Design opening hours JSON structure
-- [ ] Parse Google Places opening hours
-- [ ] Implement "isOpenNow" function
-- [ ] Implement "closesIn" function (e.g., "closes in 2 hours")
-- [ ] Handle timezone differences
-
----
-
-### 8. Place Clustering
+### 7. Place Clustering
 
 **Purpose:** Group nearby places ("these 4 are within 1.5km in Chinatown")
 
@@ -339,7 +318,7 @@ GET /places/clusters
 
 ---
 
-### 9. Community Recommendations System
+### 8. Community Recommendations System
 
 **Database Models:**
 
@@ -420,7 +399,7 @@ GET    /users/:id/reputation
 
 ---
 
-### 10. Visit Confirmation & Reputation
+### 9. Visit Confirmation & Reputation
 
 **Logic Flow:**
 
@@ -442,7 +421,7 @@ GET    /users/:id/reputation
 
 ## 🌟 PHASE 3 - POLISH (POST-LAUNCH)
 
-### 11. Search & Discovery
+### 10. Search & Discovery
 
 ```
 GET /places/search?q=mango sticky rice&city=Bangkok
@@ -451,20 +430,17 @@ GET /places/by-category/:category
 GET /places/recommended-by/:userId
 ```
 
-### 12. Place Data Enrichment
+### 11. Place Data Enrichment
 
 - Fetch photos from Google Places
 - Get reviews and ratings
-- Update opening hours automatically
-- Crowd level data (if available)
 
-### 13. Notifications (Future)
+### 12. Notifications (Future)
 
 - "You're near 3 wishlist places!"
-- "This place closes in 1 hour"
 - "Someone confirmed your recommendation! +1 Taste Point"
 
-### 14. Advanced Analytics
+### 13. Advanced Analytics
 
 - Most visited places
 - User travel patterns
@@ -510,7 +486,7 @@ CREATE EXTENSION postgis;
 - [ ] Can add 20 places to a trip (mix of names and URLs)
 - [ ] All places get geocoded correctly
 - [ ] Can get nearby places sorted by distance
-- [ ] Smart filtering works (filters by open/closed)
+- [ ] Basic filtering works (by distance and category)
 - [ ] Can mark places as visited
 - [ ] Can recommend a place
 - [ ] Can confirm a recommendation
@@ -526,11 +502,10 @@ CREATE EXTENSION postgis;
 1. ✅ User can create trips
 2. ✅ User can add places (by name, Instagram URL, Maps URL)
 3. ✅ Places are automatically geocoded
-4. ✅ GET /places/smart-now returns intelligent, location-aware results
-5. ✅ Opening hours filtering works
-6. ✅ Distance calculations are accurate
-7. ✅ Community recommendations work
-8. ✅ Reputation system awards points correctly
+4. ✅ GET /places/nearby returns location-aware results sorted by distance
+5. ✅ Distance calculations are accurate
+6. ✅ Community recommendations work
+7. ✅ Reputation system awards points correctly
 
 ---
 
@@ -544,8 +519,8 @@ CREATE EXTENSION postgis;
 
 **The app's value IS:**
 
-- Real-time, location-aware intelligence
-- Answering "what makes sense RIGHT NOW based on where I am"
+- Location-aware proximity intelligence
+- Answering "what's near me RIGHT NOW"
 - Reducing decision fatigue
 - Making travel enjoyable, not a checklist
 - Community-validated recommendations with skin in the game (reputation)
@@ -572,10 +547,10 @@ CREATE EXTENSION postgis;
 **NEXT IMMEDIATE STEPS:**
 
 1. Design database schema (Place, Trip, UserPlace models)
-2. Set up Google Places API
+2. Set up Google Places API (Geocoding only)
 3. Implement basic CRUD for places and trips
 4. Build proximity calculation (Haversine)
-5. Create smart filtering endpoint
+5. Create nearby places endpoint
 6. Test with real Bangkok data
 
 **Focus on Phase 1 first.** Once these 6 things work, you can confidently build the frontend.
