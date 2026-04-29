@@ -251,3 +251,22 @@ export const getAccessToken = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const logoutUser = async (req: Request, res: Response) => {
+  try {
+    // With stateless JWTs the server can't truly invalidate a token without
+    // a blacklist. For now we just acknowledge the logout so the client can
+    // confidently clear its local session. Add token blacklisting here later
+    // if needed.
+    res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Error during logout:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to logout",
+    });
+  }
+};

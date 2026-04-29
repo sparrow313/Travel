@@ -551,3 +551,163 @@ export const getNearbyPlaces = async (req: Request, res: Response) => {
     });
   }
 };
+
+
+/**
+ * Save a place to a trip (lightweight endpoint for the new Places API flow)
+ *
+ * Only stores what's legally allowed permanently:
+ * - placeId (permanent, per Google policy)
+ * - lat/lng in GooglePlaceCache (temporary, 30-day TTL)
+ *
+ * POST /places/save
+ * Body: { placeId, lat, lng, tripId, dayNumber?, status?, userNotes? }
+ */
+export const savePlace = async (
+  req: Request<
+    {},
+    {},
+    {
+      placeId: string;
+      lat: number;
+      lng: number;
+      tripId: string;
+      dayNumber?: number | null;
+      status?: Status;
+      userNotes?: string;
+    }
+  >,
+  res: Response,
+) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const { placeId, lat, lng, tripId, dayNumber, status, userNotes } = req.body;
+
+    // Validate required fields
+    if (!placeId) {
+      return res.status(400).json({
+        success: false,
+        message: "placeId is required",
+      });
+    }
+
+    if (lat === undefined || lng === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "lat and lng are required",
+      });
+    }
+
+    if (!tripId) {
+      return res.status(400).json({
+        success: false,
+        message: "tripId is required",
+      });
+    }
+
+    // Validate trip exists and belongs to user
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+    });
+
+    if (!trip) {
+      return res.status(404).json({
+        success: false,
+        message: "Trip not found",
+      });
+    }
+
+    if (trip.userId !== user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to add places to this trip",
+      });
+    }
+
+    // Validate dayNumber against trip itinerary
+    if (dayNumber !== undefined && dayNumber !== null) {
+      if (!trip.hasItinerary || !trip.startDate || !trip.endDate) {
+        return res.status(400).json({
+          success: false,
+          message: "This trip does not have an itinerary enabled",
+        });
+      }
+
+      const totalDays =
+        Math.ceil(
+          (trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24),
+        ) + 1;
+
+      if (dayNumber < 1 || dayNumber > totalDays) {
+        return res.status(400).json({
+          success: false,
+          message: `dayNumber must be between 1 and ${totalDays}`,
+        });
+      }
+    }
+
+    // Check for duplicate save
+    const existing = await prisma.userSavedPlace.findFirst({
+      where: { userId: user.id, placeId, tripId },
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already saved this place in this trip",
+        data: existing,
+      });
+    }
+
+    // Upsert Place (permanent — only stores placeId)
+    await prisma.place.upsert({
+      where: { placeId },
+      update: {},
+      create: { placeId },
+    });
+
+    // Upsert GooglePlaceCache (temporary — 30-day TTL on lat/lng)
+    await prisma.googlePlaceCache.upsert({
+      where: { placeId },
+      update: { lat, lng, fetchedAt: new Date() },
+      create: { placeId, lat, lng },
+    });
+
+    // Create the saved place
+    const savedPlace = await prisma.userSavedPlace.create({
+      data: {
+        userId: user.id,
+        placeId,
+        tripId,
+        status: status ?? Status.WISHLIST,
+        userNotes: userNotes ?? null,
+        dayNumber: dayNumber ?? null,
+        visitedAt: status === Status.VISITED ? new Date() : null,
+      },
+      include: {
+        place: { include: { cache: true } },
+        trip: true,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Place saved successfully",
+      data: savedPlace,
+    });
+  } catch (error) {
+    console.error("Error saving place:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save place",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};

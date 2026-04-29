@@ -29,7 +29,8 @@ model Profile {
   id                Int     @id @default(autoincrement())
   userId            Int     @unique
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bio               String
+  bio               String  @default("")
+  location          String?
   currentlyVisiting String?
 }
 
@@ -93,6 +94,7 @@ model UserSavedPlace {
   tripId    String
   status    Status    @default(WISHLIST)
   userNotes String?
+  dayNumber Int?      // For itinerary: which day this place is assigned to
   visitedAt DateTime? // Timestamp when status changed to VISITED
 
   createdAt DateTime @default(now())
