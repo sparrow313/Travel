@@ -270,3 +270,22 @@ export const logoutUser = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const deleteAccount = async (req: Request, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Delete the user — all related data cascades (profile, trips, places, documents, etc.)
+    await prisma.user.delete({
+      where: { id: user.id },
+    });
+
+    res.status(200).json({ message: "Account deleted successfully" });
+  } catch (error) {
+    console.error("[DeleteAccount] Error:", error);
+    res.status(500).json({ message: "Failed to delete account" });
+  }
+};

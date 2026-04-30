@@ -271,7 +271,7 @@ export const updatePlaceStatus = async (
   req: Request<
     {},
     {},
-    { place_id: string; trip_id: string; status?: Status; userNotes?: string }
+    { place_id: string; trip_id: string; status?: Status; userNotes?: string; dayNumber?: number | null }
   >,
   res: Response,
 ) => {
@@ -285,7 +285,7 @@ export const updatePlaceStatus = async (
       });
     }
 
-    const { place_id, trip_id, status, userNotes } = req.body;
+    const { place_id, trip_id, status, userNotes, dayNumber } = req.body;
 
     if (!place_id || !trip_id) {
       return res.status(400).json({
@@ -299,6 +299,7 @@ export const updatePlaceStatus = async (
       status?: Status;
       userNotes?: string;
       visitedAt?: Date | null;
+      dayNumber?: number | null;
     } = {};
 
     if (status !== undefined) {
@@ -314,6 +315,10 @@ export const updatePlaceStatus = async (
 
     if (userNotes !== undefined) {
       updateData.userNotes = userNotes;
+    }
+
+    if (dayNumber !== undefined) {
+      updateData.dayNumber = dayNumber;
     }
 
     const savedPlace = await prisma.userSavedPlace.findFirst({
