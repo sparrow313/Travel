@@ -9,6 +9,8 @@ import profileRoute from "./routes/profileRoute";
 import placeRoutes from "../src/routes/placeRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import tripRoutes from "./routes/tripRoutes";
+import documentRoutes from "./routes/documentRoutes";
+import instagramRoutes from "./routes/instagramRoutes";
 
 const port = process.env.PORT || 5000;
 
@@ -30,6 +32,8 @@ app.use("/profile", isAuthenticated, profileRoute);
 app.use("/places", isAuthenticated, placeRoutes);
 app.use("/reviews", reviewRoutes);
 app.use("/trips", tripRoutes);
+app.use("/documents", isAuthenticated, documentRoutes);
+app.use("/instagram-saves", isAuthenticated, instagramRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);

@@ -6,6 +6,7 @@ import {
   updatePlaceStatus,
   getNearbyPlaces,
   savePlace,
+  removeSavedPlace,
 } from "../controllers/placesController.js";
 
 const router = Router();
@@ -17,6 +18,7 @@ router.get("/getplace", getSavedPlaces);
 router.post("/addplace", addPlaceFromGoogleMapsToDb);
 router.post("/save", savePlace);
 router.patch("/update-status", updatePlaceStatus);
+router.delete("/remove", removeSavedPlace);
 router.get("/nearby", getNearbyPlaces as unknown as RequestHandler);
 
 export default router;

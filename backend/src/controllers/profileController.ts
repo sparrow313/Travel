@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma.js";
+import { uploadToR2, deleteFromR2, getKeyFromUrl } from "../utils/r2.js";
 
 export const getUserProfile = async (req: Request, res: Response) => {
   try {
@@ -169,6 +170,89 @@ export const updateProfile = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Failed to update profile",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const uploadProfileImage = async (req: Request, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      });
+    }
+
+    // Validate file type
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file type. Only JPEG, PNG, and WebP are allowed.",
+      });
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return res.status(400).json({
+        success: false,
+        message: "File too large. Maximum size is 5MB.",
+      });
+    }
+
+    // Delete old image from R2 if one exists
+    const existingProfile = await prisma.profile.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (existingProfile?.profileImageUrl) {
+      const oldKey = getKeyFromUrl(existingProfile.profileImageUrl);
+      if (oldKey) {
+        try {
+          await deleteFromR2(oldKey);
+        } catch (err) {
+          console.warn("[R2] Failed to delete old image:", err);
+        }
+      }
+    }
+
+    // Upload new image to R2
+    const ext = file.mimetype.split("/")[1];
+    const key = `profile-images/${user.id}-${Date.now()}.${ext}`;
+    const imageUrl = await uploadToR2(file.buffer, key, file.mimetype);
+
+    // Upsert profile with new image URL
+    const profile = await prisma.profile.upsert({
+      where: { userId: user.id },
+      update: { profileImageUrl: imageUrl },
+      create: {
+        userId: user.id,
+        bio: "",
+        profileImageUrl: imageUrl,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Profile image uploaded successfully",
+      profileImageUrl: profile.profileImageUrl,
+    });
+  } catch (error) {
+    console.error("[ProfileImage] Upload failed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload profile image",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

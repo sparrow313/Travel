@@ -14,15 +14,17 @@ datasource db {
 }
 
 model User {
-  id          Int              @id @default(autoincrement())
-  email       String           @unique
-  username    String
-  password    String
-  isAdmin     Boolean          @default(false)
-  profile     Profile?
-  savedPlaces UserSavedPlace[]
-  reviews     Review[]
-  trips       Trip[]
+  id             Int              @id @default(autoincrement())
+  email          String           @unique
+  username       String
+  password       String
+  isAdmin        Boolean          @default(false)
+  profile        Profile?
+  savedPlaces    UserSavedPlace[]
+  reviews        Review[]
+  trips          Trip[]
+  documents      Document[]
+  instagramSaves InstagramSave[]
 }
 
 model Profile {
@@ -32,6 +34,57 @@ model Profile {
   bio               String  @default("")
   location          String?
   currentlyVisiting String?
+  profileImageUrl   String?
+}
+
+model Document {
+  id              String       @id @default(cuid())
+  userId          Int
+  type            DocumentType
+  title           String
+  subtitle        String       @default("")
+  date            DateTime
+  endDate         DateTime?
+  referenceNumber String?
+  notes           String?
+  imageUrl        String?      // R2 stored document image
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+}
+
+enum DocumentType {
+  PASSPORT
+  VISA
+  FLIGHT
+  HOTEL
+  INSURANCE
+  TRAVEL_DOC
+  TRANSPORT
+  BUS
+  OTHER
+}
+
+model InstagramSave {
+  id            String   @id @default(cuid())
+  userId        Int
+  instagramUrl  String
+  placeName     String
+  address       String?
+  notes         String?
+  sourceHandle  String?  // @username extracted from share text
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Place {
@@ -92,7 +145,8 @@ model UserSavedPlace {
   userId    Int
   placeId   String
   tripId    String
-  status    Status    @default(WISHLIST)
+  status    Status        @default(WISHLIST)
+  category  PlaceCategory @default(OTHER)
   userNotes String?
   dayNumber Int?      // For itinerary: which day this place is assigned to
   visitedAt DateTime? // Timestamp when status changed to VISITED
@@ -137,4 +191,15 @@ enum Status {
   WISHLIST
   VISITED
   SKIPPED
+}
+
+enum PlaceCategory {
+  FOOD_DRINK
+  STAY
+  SIGHTSEEING
+  NATURE
+  SHOPPING
+  NIGHTLIFE
+  WELLNESS
+  OTHER
 }

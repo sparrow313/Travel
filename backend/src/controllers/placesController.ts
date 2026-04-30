@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { GooglePlaceRequestBody, GooglePlace } from "../types/googleMaps.js";
-import { Status } from "../../generated/prisma/enums.js";
+import { Status, PlaceCategory } from "../../generated/prisma/enums.js";
 
 const THIRTY_DAYS_IN_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -554,6 +554,67 @@ export const getNearbyPlaces = async (req: Request, res: Response) => {
 
 
 /**
+ * Delete a saved place from a trip
+ *
+ * DELETE /places/remove
+ * Body: { place_id, trip_id }
+ */
+export const removeSavedPlace = async (
+  req: Request<{}, {}, { place_id: string; trip_id: string }>,
+  res: Response,
+) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const { place_id, trip_id } = req.body;
+
+    if (!place_id || !trip_id) {
+      return res.status(400).json({
+        success: false,
+        message: "place_id and trip_id are required",
+      });
+    }
+
+    const savedPlace = await prisma.userSavedPlace.findFirst({
+      where: {
+        userId: user.id,
+        placeId: place_id,
+        tripId: trip_id,
+      },
+    });
+
+    if (!savedPlace) {
+      return res.status(404).json({
+        success: false,
+        message: "Saved place not found for this trip",
+      });
+    }
+
+    await prisma.userSavedPlace.delete({
+      where: { id: savedPlace.id },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Place removed successfully",
+    });
+  } catch (error) {
+    console.error("Error removing saved place:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to remove saved place",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+/**
  * Save a place to a trip (lightweight endpoint for the new Places API flow)
  *
  * Only stores what's legally allowed permanently:
@@ -574,6 +635,7 @@ export const savePlace = async (
       tripId: string;
       dayNumber?: number | null;
       status?: Status;
+      category?: PlaceCategory;
       userNotes?: string;
     }
   >,
@@ -588,7 +650,7 @@ export const savePlace = async (
       });
     }
 
-    const { placeId, lat, lng, tripId, dayNumber, status, userNotes } = req.body;
+    const { placeId, lat, lng, tripId, dayNumber, status, category, userNotes } = req.body;
 
     // Validate required fields
     if (!placeId) {
@@ -687,6 +749,7 @@ export const savePlace = async (
         placeId,
         tripId,
         status: status ?? Status.WISHLIST,
+        category: category ?? PlaceCategory.OTHER,
         userNotes: userNotes ?? null,
         dayNumber: dayNumber ?? null,
         visitedAt: status === Status.VISITED ? new Date() : null,
