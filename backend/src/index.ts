@@ -11,6 +11,7 @@ import reviewRoutes from "./routes/reviewRoutes";
 import tripRoutes from "./routes/tripRoutes";
 import documentRoutes from "./routes/documentRoutes";
 import instagramRoutes from "./routes/instagramRoutes";
+import ocrRoutes from "./routes/ocrRoutes";
 
 const port = process.env.PORT || 5000;
 
@@ -34,6 +35,7 @@ app.use("/reviews", reviewRoutes);
 app.use("/trips", tripRoutes);
 app.use("/documents", isAuthenticated, documentRoutes);
 app.use("/instagram-saves", isAuthenticated, instagramRoutes);
+app.use("/ocr", isAuthenticated, ocrRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
